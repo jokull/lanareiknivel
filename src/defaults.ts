@@ -72,10 +72,15 @@ export function defaultBaseRates(): RateBracket[] {
   ];
 }
 
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function defaultAssumptions(): Assumptions {
   const baseRates = defaultBaseRates();
   return {
-    startMonth: "2026-03",
+    startMonth: currentMonth(), // the month the entered balances belong to
     pensionCap: "single" as const,
     scenarios: deriveScenarios(baseRates),
   };
