@@ -23,7 +23,9 @@ import { buildCPISeries } from "../cpi";
 import type { LoanInput, ScenarioConfig } from "../types";
 import data from "../data/debt-equity.json";
 
-// Example plan: 100k/mo extra principal on loan 2 from 2027.
+// NOTE: this chart projects from data.loans (the built JSON), not from the
+// loans configured in the calculator above; keep them in sync by rebuilding
+// the JSON. Example plan: 100k/mo extra principal on loan 2 from 2027.
 const EXTRA_PRINCIPAL_BRACKET = { startYear: 2027, years: 5, amount: 100_000 };
 
 // CPI path: Peningamál 2026/1 Tafla 4 (4.3% 2026–27, then the 2.5% target).
@@ -149,7 +151,19 @@ function fmtISK(v: number): string {
 }
 
 export function DebtEquityChart() {
-  const [growthPct, setGrowthPct] = useState(4.5); // HMS nominal trend since purchase
+  // Default = the annualized nominal trend of the HMS anchors in the data
+  // (first → last), not a hand-picked number; the user can override.
+  const [growthPct, setGrowthPct] = useState(() => {
+    const a = data.hmsAnchors;
+    if (!a || a.length < 2) return 2.5;
+    const first = a[0]!;
+    const last = a[a.length - 1]!;
+    const [fy, fm] = first.month.split("-").map(Number);
+    const [ly, lm] = last.month.split("-").map(Number);
+    const months = (ly! - fy!) * 12 + (lm! - fm!);
+    if (months <= 0) return 2.5;
+    return Math.round((Math.pow(last.index / first.index, 12 / months) - 1) * 1000) / 10;
+  });
   const [extraPrincipal, setExtraPrincipal] = useState(true);
   const [horizonYears, setHorizonYears] = useState<number | null>(null); // null = full term
   const [real, setReal] = useState(false); // deflate to today's krónur
@@ -167,7 +181,12 @@ export function DebtEquityChart() {
         const wb = XLSX.read(ev.target?.result, { type: "array", cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]!];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-        // row 0 = header (Lánsnúmer, Aðgerð, Greiðsludags., Mynt, Höfuðstóll, …).
+        // Columns: 0 Lánsnúmer | 1 Aðgerð | 2 Greiðsludags. | 3 Mynt |
+        // 4 Afborgun af höfuðstól | 5 Vextir | 6 Verðbætur á höfuðstól |
+        // 7 Verðbætur á vexti | 8 Greiðslujöfnun | 9 Roll-up | 10 Dráttarvextir |
+        // 11 Kostnaður | 12 Samtals.
+        // The bank states column 4 in BASE-INDEX kronur; the kronur actually
+        // paid into principal are 4 + 6 (the uplift on this payment).
         const parsed = (rows as unknown[])
           .slice(1)
           .map((r) => r as Array<string | number | Date | null>)
@@ -176,7 +195,7 @@ export function DebtEquityChart() {
             loanId: Number(r[0]),
             action: String(r[1] ?? ""),
             date: r[2] as Date,
-            principal: Number(r[4] ?? 0),
+            principal: Number(r[4] ?? 0) + Number(r[6] ?? 0),
             total: Number(r[12] ?? 0),
           }));
         setUploadedRows(parsed);
@@ -515,7 +534,7 @@ export function DebtEquityChart() {
       <p className="text-xs text-neutral-400">
         Saga: Arion greiðslusaga (höfuðstólslausnir) + HMS fjölbýli höfuðborgarsvæði vísitala
         (innskotin milli mælipunkta). Framspá: lánaáætlun reiknivélar (CPI 4.3→2.5%) og
-        forsendan um {growthPct}% árlegan vöxt fasteignaverðs. Raunvirði leiðréttir öll gildi
+        forsendan um {growthPct}% árlegan vöxt fasteignaverðs (sjálfgefið: leitni HMS-vísitölunnar milli fyrsta og síðasta viðmiðs). Raunvirði leiðréttir öll gildi
         með vísitölu neysluverðs (CPI_now/CPI_month). Bláir punktar (valfrjálsir) = séreignarsparnaður.
       </p>
     </section>
